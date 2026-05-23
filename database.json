@@ -1,0 +1,54 @@
+{
+  "users": {
+    "admin": "4fc82b26aecb47d2868c4efbe3581732a3e7cbcc6c2efb32062c08170a05eeb8"
+  },
+  "servers": [
+    {
+      "id": "1779544237",
+      "name": "INDIA",
+      "baseUrl": "https://emote-api-pink.vercel.app",
+      "region": "indian",
+      "order": 6
+    }
+  ],
+  "categories": [
+    {
+      "id": "HOT",
+      "name": "HOT",
+      "icon": "\ud83d\udd25",
+      "order": 1
+    },
+    {
+      "id": "EVO",
+      "name": "EVO",
+      "icon": "\u26a1",
+      "order": 2
+    }
+  ],
+  "emotes": [
+    {
+      "id": "1779544720",
+      "imageUrl": "https://i.supaimg.com/e3677d19-2f6f-4c57-9f2d-8a40d975ae79/544c907d-9c15-4c6b-a696-4ccf399c975c.jpg",
+      "category": "EVO",
+      "emoteId": "544c907d-9c15-4c6b-a696-4ccf399c975c"
+    },
+    {
+      "id": "1779544844",
+      "imageUrl": "https://i.supaimg.com/e3677d19-2f6f-4c57-9f2d-8a40d975ae79/544c907d-9c15-4c6b-a696-4ccf399c975c.jpg",
+      "category": "EVO",
+      "emoteId": "544c907d-9c15-4c6b-a696-4ccf399c975c"
+    }
+  ],
+  "settings": {
+    "maintenance": {
+      "enabled": false,
+      "message": "System is being upgraded. Please check back later."
+    },
+    "footerLinks": {
+      "telegram": "#",
+      "github": "#",
+      "discord": "#",
+      "youtube": "#"
+    }
+  }
+}
