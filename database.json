@@ -26,18 +26,7 @@
     }
   ],
   "emotes": [
-    {
-      "id": "1779544720",
-      "imageUrl": "https://i.supaimg.com/e3677d19-2f6f-4c57-9f2d-8a40d975ae79/544c907d-9c15-4c6b-a696-4ccf399c975c.jpg",
-      "category": "EVO",
-      "emoteId": "544c907d-9c15-4c6b-a696-4ccf399c975c"
-    },
-    {
-      "id": "1779544844",
-      "imageUrl": "https://i.supaimg.com/e3677d19-2f6f-4c57-9f2d-8a40d975ae79/544c907d-9c15-4c6b-a696-4ccf399c975c.jpg",
-      "category": "EVO",
-      "emoteId": "544c907d-9c15-4c6b-a696-4ccf399c975c"
-    }
+
   ],
   "settings": {
     "maintenance": {
@@ -45,10 +34,10 @@
       "message": "System is being upgraded. Please check back later."
     },
     "footerLinks": {
-      "telegram": "#",
-      "github": "#",
-      "discord": "#",
-      "youtube": "#"
+      "telegram": "https://t.me/+cCpI2wcz0e1hYTY1",
+      "github": "https://youtube.com/@xcy_live?si=B_y2Yk6TEZPCql-M",
+      "discord": "https://youtube.com/@xcy_live?si=B_y2Yk6TEZPCql-M",
+      "youtube": "https://youtube.com/@xcy_live?si=B_y2Yk6TEZPCql-M"
     }
   }
 }
