@@ -82,7 +82,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE B1— ACCESS</title>
+<title>EMOTE BOT — ACCESS</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -160,7 +160,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <div class="login-box">
     <div class="brand">
       <span class="brand-icon">⚡</span>
-      <div class="brand-name">XCY LIVE</div>
+      <div class="brand-name">EMOTE BOT</div>
       <div class="brand-sub">// CONTROL PANEL v2.0</div>
     </div>
 
@@ -258,7 +258,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE B1— DASHBOARD</title>
+<title>EMOTE BOT — DASHBOARD</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -336,13 +336,54 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .cat-tab:hover{border-color:var(--green);color:var(--green);}
 .cat-tab.active{background:var(--green);color:#000;border-color:var(--green);font-weight:700;}
 
-/* EMOTE GRID — 5 col by default, never overflow */
-.emote-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;max-height:320px;overflow-y:auto;padding-right:4px;}
-.emote-grid::-webkit-scrollbar{width:4px;}
-.emote-grid::-webkit-scrollbar-track{background:rgba(0,255,65,0.04);}
-.emote-grid::-webkit-scrollbar-thumb{background:rgba(0,255,65,0.3);}
-@media(max-width:640px){.emote-grid{grid-template-columns:repeat(4,1fr);}}
-@media(max-width:380px){.emote-grid{grid-template-columns:repeat(3,1fr);}}
+/* EMOTE GRID — Fixed Version */
+.emote-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);     /* Desktop: 8 columns */
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 6px;
+    padding-bottom: 6px;
+}
+
+.emote-grid img {
+    width: 100%;           /* Important */
+    height: auto;
+    object-fit: contain;   /* Image ratio maintain karega */
+    border-radius: 6px;
+    background: rgba(255,255,255,0.05);
+    transition: transform 0.2s ease;
+}
+
+.emote-grid img:hover {
+    transform: scale(1.08);
+}
+
+/* Scrollbar Styling */
+.emote-grid::-webkit-scrollbar {
+    width: 5px;
+}
+.emote-grid::-webkit-scrollbar-track {
+    background: rgba(0,255,65,0.04);
+}
+.emote-grid::-webkit-scrollbar-thumb {
+    background: rgba(0,255,65,0.4);
+    border-radius: 10px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .emote-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (max-width: 380px) {
+    .emote-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
 
 .emote-card{aspect-ratio:1;border:1px solid rgba(0,255,65,0.12);background:rgba(0,255,65,0.03);cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden;display:flex;flex-direction:column;}
 .emote-card:hover{border-color:rgba(0,255,65,0.5);background:rgba(0,255,65,0.08);transform:scale(1.04);box-shadow:0 0 18px rgba(0,255,65,0.2);}
@@ -415,7 +456,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <header class="hdr">
     <div class="hdr-brand">
       <span class="ico">⚡</span>
-      <h1>XCY LIVE</h1>
+      <h1>EMOTE BOT</h1>
     </div>
     <div class="hdr-right">
       <div class="sys-clock" id="clock">--:--:--</div>
@@ -536,16 +577,7 @@ function hideLoad(){document.getElementById('loader').classList.add('hidden');}
 async function loadData(){
   try{
     const r=await fetch('/api/data');
-    if(!r.ok){
-      if(r.status===401){window.location.href='/';return;}
-      toast('// DATA LOAD ERROR: HTTP '+r.status,'err');
-      return;
-    }
     const d=await r.json();
-    if(d.error){toast('// SERVER ERROR: '+d.error,'err');return;}
-
-    // Cache emotes for tab switching
-    window._allEmotes = d.emotes||[];
 
     // Servers
     const iSrv=document.getElementById('indianSrv');
@@ -574,36 +606,27 @@ async function loadData(){
       btn.addEventListener('click',()=>{
         document.querySelectorAll('.cat-tab').forEach(x=>x.classList.remove('active'));
         btn.classList.add('active');
-        loadEmotes(c.id, window._allEmotes);
+        loadEmotes(c.id,d.emotes||[]);
       });
       tabsEl.appendChild(btn);
       if(i===0) firstCat=c.id;
     });
-    if(firstCat) loadEmotes(firstCat, window._allEmotes);
-    else document.getElementById('emoteGrid').innerHTML='<div class="no-emotes">// NO CATEGORIES CONFIGURED</div>';
+    loadEmotes(firstCat,d.emotes||[]);
 
     // Footer
-    const settings=d.settings||{};
-    const l=settings.footerLinks||{};
+    const l=d.settings.footerLinks||{};
     document.getElementById('ftTelegram').href=l.telegram||'#';
     document.getElementById('ftGithub').href=l.github||'#';
     document.getElementById('ftDiscord').href=l.discord||'#';
     document.getElementById('ftYoutube').href=l.youtube||'#';
 
     // Maintenance
-    const m=settings.maintenance||{};
+    const m=d.settings.maintenance||{};
     if(m.enabled){
       document.getElementById('maintMsg').textContent=m.message||'';
       document.getElementById('maintOverlay').classList.remove('hidden');
     }
-
-    console.log('[LOAD] Servers:',d.servers?.length||0,'Emotes:',d.emotes?.length||0,'Categories:',d.categories?.length||0);
-  }catch(e){
-    console.error('[LOAD ERROR]',e);
-    toast('// NETWORK ERROR — RETRYING...','err');
-    // Auto retry after 3 seconds
-    setTimeout(loadData, 3000);
-  }
+  }catch(e){console.error(e);}
 }
 
 function loadEmotes(catId,emotes){
@@ -697,7 +720,7 @@ ADMIN_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE B1— ADMIN</title>
+<title>EMOTE BOT — ADMIN</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -789,7 +812,7 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
 <!-- DASHBOARD -->
 <div id="adminDash" class="dash hidden">
   <header class="hdr">
-    <h1>⚡ XCY LIVE B1ADMIN</h1>
+    <h1>⚡ ADMIN PANEL</h1>
     <button id="adminLogout" class="hdr-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-width="2"/></svg></button>
   </header>
 
@@ -1065,8 +1088,8 @@ def logout():
 
 @app.route('/api/data')
 def get_data():
-    # No login check here — dashboard route already requires login.
-    # XCY LIVE B1ADMIN also needs this endpoint without a user session.
+    if not require_login():
+        return jsonify({'error': 'Unauthorized'}), 401
     return jsonify({
         'servers': DATABASE['servers'],
         'categories': DATABASE['categories'],
@@ -1265,46 +1288,28 @@ def manage_settings():
                 DATABASE['users']['admin'] = hash_password(new_password)
         save_database()
         return jsonify({'success': True})
+
 @app.route('/api/send-emote', methods=['GET'])
 def send_emote():
     server = request.args.get('server')
     tc = request.args.get('tc')
     emote_id = request.args.get('emote_id')
-    
-    # Sab UIDs le lo
-    uids = []
+    uids = {}
     for i in range(1, 6):
         uid = request.args.get(f'uid{i}')
         if uid:
-            uids.append(f"uid{i}={uid}")
-    
-    # Check karo sab hai ya nahi
+            uids[f'uid{i}'] = uid
     if not server or not tc or not emote_id:
-        return jsonify({'success': False, 'error': 'Missing parameters'})
-    
-    # URL banao
-    params = [f"tc={tc}", f"emote_id={emote_id}"] + uids
-    target_url = f"{server}/join?" + "&".join(params)
-    
-    print(f"[SENDING] {target_url}")  # Debug
-    
+        return jsonify({'success': False, 'error': 'Missing required parameters'})
+    params = {'tc': tc, 'emote_id': emote_id, **uids}
+    query_string = '&'.join([f'{k}={v}' for k, v in params.items()])
+    target_url = f"{server}/join?{query_string}"
     try:
-        # POST ya GET? Try both
-        response = requests.get(target_url, timeout=15)
-        
-        if response.status_code == 200:
-            return jsonify({'success': True, 'message': '✅ Emote sent!'})
-        else:
-            # Try POST method if GET fails
-            response2 = requests.post(target_url, timeout=15)
-            if response2.status_code == 200:
-                return jsonify({'success': True, 'message': '✅ Emote sent (POST)!'})
-            else:
-                return jsonify({'success': False, 'error': f'Failed: {response.status_code}'})
-                
+        response = requests.get(target_url, timeout=10)
+        return jsonify({'success': True, 'status': response.status_code, 'message': 'Emote sent successfully', 'data': response.text})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-        
+
 load_database()
 
 if __name__ == '__main__':
