@@ -5,9 +5,82 @@ import hashlib
 import time
 import urllib.parse
 import requests
+import firebase_admin
+from firebase_admin import credentials, firestore, auth
+from datetime import datetime
+import uuid
 
 app = Flask(__name__)
 app.secret_key = 'emote-bot-secret-key-2024'
+
+# Initialize Firebase Admin SDK
+firebase_config = {
+    "type": "service_account",
+    "project_id": "bijayxahsg72",
+    "private_key_id": "your-private-key-id",  # You'll need to add your actual private key
+    "private_key": "your-private-key",  # You'll need to add your actual private key
+    "client_email": "firebase-adminsdk@bijayxahsg72.iam.gserviceaccount.com",
+    "client_id": "your-client-id",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk%40bijayxahsg72.iam.gserviceaccount.com"
+}
+
+# Initialize Firebase (you'll need to download the service account key from Firebase Console)
+# For now, we'll use Firestore in native mode
+try:
+    cred = credentials.Certificate('firebase-key.json')  # Place your Firebase service account key file here
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print('[FIREBASE] Connected successfully!')
+except Exception as e:
+    print(f'[FIREBASE] Not initialized: {e}')
+    print('[FIREBASE] Using local database fallback')
+    db = None
+
+# Helper functions for Firebase operations
+def firebase_get_document(collection, document_id):
+    if db:
+        doc_ref = db.collection(collection).document(document_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict()
+    return None
+
+def firebase_set_document(collection, document_id, data):
+    if db:
+        doc_ref = db.collection(collection).document(document_id)
+        doc_ref.set(data)
+        return True
+    return False
+
+def firebase_get_collection(collection):
+    if db:
+        docs = db.collection(collection).stream()
+        return {doc.id: doc.to_dict() for doc in docs}
+    return {}
+
+def firebase_add_document(collection, data):
+    if db:
+        doc_ref = db.collection(collection).document()
+        doc_ref.set(data)
+        return doc_ref.id
+    return str(uuid.uuid4())
+
+def firebase_update_document(collection, document_id, data):
+    if db:
+        doc_ref = db.collection(collection).document(document_id)
+        doc_ref.update(data)
+        return True
+    return False
+
+def firebase_delete_document(collection, document_id):
+    if db:
+        doc_ref = db.collection(collection).document(document_id)
+        doc_ref.delete()
+        return True
+    return False
 
 # Always use absolute path next to app.py so it never gets lost
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,11 +110,47 @@ DATABASE = {k: v for k, v in DEFAULT_DB.items()}
 
 def load_database():
     global DATABASE
+    if db:
+        # Load from Firebase
+        try:
+            # Load servers
+            servers_data = firebase_get_collection('servers')
+            if servers_data:
+                DATABASE['servers'] = list(servers_data.values())
+            
+            # Load categories
+            categories_data = firebase_get_collection('categories')
+            if categories_data:
+                DATABASE['categories'] = list(categories_data.values())
+            
+            # Load emotes
+            emotes_data = firebase_get_collection('emotes')
+            if emotes_data:
+                DATABASE['emotes'] = list(emotes_data.values())
+            
+            # Load settings
+            settings_data = firebase_get_document('settings', 'app_settings')
+            if settings_data:
+                DATABASE['settings'] = settings_data
+            
+            # Load users
+            users_data = firebase_get_document('users', 'admin')
+            if users_data:
+                DATABASE['users'] = users_data
+            
+            print(f'[FIREBASE] Loaded {len(DATABASE["emotes"])} emotes, {len(DATABASE["servers"])} servers')
+        except Exception as e:
+            print(f'[FIREBASE] Load error: {e} — using local fallback')
+            load_local_database()
+    else:
+        load_local_database()
+
+def load_local_database():
+    global DATABASE
     try:
         if os.path.exists(DB_PATH):
             with open(DB_PATH, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
-            # Merge loaded data into default structure so missing keys dont crash
             for key in DEFAULT_DB:
                 if key in loaded:
                     DATABASE[key] = loaded[key]
@@ -52,7 +161,35 @@ def load_database():
         print(f'[DB] Load error: {e} — starting with defaults')
 
 def save_database():
-    """Atomic write: write to temp file then rename so a crash never corrupts the DB."""
+    if db:
+        # Save to Firebase
+        try:
+            # Save servers
+            for server in DATABASE['servers']:
+                firebase_set_document('servers', server['id'], server)
+            
+            # Save categories
+            for category in DATABASE['categories']:
+                firebase_set_document('categories', category['id'], category)
+            
+            # Save emotes
+            for emote in DATABASE['emotes']:
+                firebase_set_document('emotes', emote['id'], emote)
+            
+            # Save settings
+            firebase_set_document('settings', 'app_settings', DATABASE['settings'])
+            
+            # Save users
+            firebase_set_document('users', 'admin', DATABASE['users'])
+            
+            print(f'[FIREBASE] Saved {len(DATABASE["emotes"])} emotes, {len(DATABASE["servers"])} servers')
+        except Exception as e:
+            print(f'[FIREBASE] Save error: {e} — using local fallback')
+            save_local_database()
+    else:
+        save_local_database()
+
+def save_local_database():
     tmp_path = DB_PATH + '.tmp'
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -61,7 +198,6 @@ def save_database():
         print(f'[DB] Saved {len(DATABASE.get("emotes",[]))} emotes, {len(DATABASE.get("servers",[]))} servers')
     except Exception as e:
         print(f'[DB] SAVE ERROR: {e}')
-        # Remove failed temp file if it exists
         try:
             os.remove(tmp_path)
         except:
@@ -100,22 +236,33 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 /* GRID BG */
 .grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(0,255,65,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,65,0.03) 1px,transparent 1px);background-size:40px 40px;z-index:0;}
 
+/* GLOW EFFECTS */
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+@keyframes borderGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(0,255,65,0.2), inset 0 0 5px rgba(0,255,65,0.1); }
+  50% { box-shadow: 0 0 20px rgba(0,255,65,0.5), inset 0 0 10px rgba(0,255,65,0.2); }
+}
+
 /* CORNER GLOWS */
-.glow-tl{position:fixed;top:-100px;left:-100px;width:400px;height:400px;background:radial-gradient(circle,rgba(0,255,65,0.08) 0%,transparent 70%);z-index:0;pointer-events:none;}
-.glow-br{position:fixed;bottom:-100px;right:-100px;width:400px;height:400px;background:radial-gradient(circle,rgba(0,255,65,0.05) 0%,transparent 70%);z-index:0;pointer-events:none;}
+.glow-tl{position:fixed;top:-100px;left:-100px;width:400px;height:400px;background:radial-gradient(circle,rgba(0,255,65,0.08) 0%,transparent 70%);z-index:0;pointer-events:none;animation: glowPulse 4s ease-in-out infinite;}
+.glow-br{position:fixed;bottom:-100px;right:-100px;width:400px;height:400px;background:radial-gradient(circle,rgba(0,255,65,0.05) 0%,transparent 70%);z-index:0;pointer-events:none;animation: glowPulse 4s ease-in-out infinite reverse;}
+.glow-center{position:fixed;top:50%;left:50%;width:600px;height:600px;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(0,255,65,0.03) 0%,transparent 70%);z-index:0;pointer-events:none;}
 
 /* MATRIX RAIN */
 #matrix{position:fixed;inset:0;z-index:1;opacity:0.18;pointer-events:none;}
 
 .login-wrap{position:relative;z-index:10;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
-.login-box{width:100%;max-width:440px;border:1px solid var(--border);background:linear-gradient(135deg,rgba(0,20,0,0.95),rgba(0,10,0,0.98));padding:50px 40px;position:relative;clip-path:polygon(12px 0%,100% 0%,100% calc(100% - 12px),calc(100% - 12px) 100%,0% 100%,0% 12px);}
+.login-box{width:100%;max-width:440px;border:1px solid var(--border);background:linear-gradient(135deg,rgba(0,20,0,0.95),rgba(0,10,0,0.98));padding:50px 40px;position:relative;clip-path:polygon(12px 0%,100% 0%,100% calc(100% - 12px),calc(100% - 12px) 100%,0% 100%,0% 12px);animation: borderGlow 3s ease-in-out infinite;}
 .login-box::before{content:'';position:absolute;inset:0;border:1px solid var(--border);clip-path:polygon(12px 0%,100% 0%,100% calc(100% - 12px),calc(100% - 12px) 100%,0% 100%,0% 12px);pointer-events:none;}
 
 /* TOP ACCENT LINE */
-.login-box::after{content:'';position:absolute;top:0;left:12px;right:0;height:2px;background:linear-gradient(90deg,var(--green),transparent);pointer-events:none;}
+.login-box::after{content:'';position:absolute;top:0;left:12px;right:0;height:2px;background:linear-gradient(90deg,var(--green),transparent);animation: borderGlow 2s ease-in-out infinite;}
 
 .brand{text-align:center;margin-bottom:40px;}
-.brand-icon{font-size:48px;display:block;margin-bottom:12px;filter:drop-shadow(0 0 20px var(--green));}
+.brand-icon{font-size:48px;display:block;margin-bottom:12px;filter:drop-shadow(0 0 20px var(--green));animation: glowPulse 2s ease-in-out infinite;}
 .brand-name{font-family:'Rajdhani',sans-serif;font-size:32px;font-weight:700;letter-spacing:6px;color:var(--green);text-shadow:0 0 20px var(--green),0 0 40px rgba(0,255,65,0.3);}
 .brand-sub{font-size:11px;color:var(--muted);letter-spacing:4px;margin-top:4px;}
 
@@ -131,7 +278,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .login-btn{width:100%;padding:16px;background:transparent;border:1px solid var(--green);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:13px;letter-spacing:4px;cursor:pointer;transition:all 0.3s;position:relative;overflow:hidden;margin-top:8px;}
 .login-btn::before{content:'';position:absolute;inset:0;background:var(--green);transform:translateX(-100%);transition:transform 0.3s;}
 .login-btn:hover::before{transform:translateX(0);}
-.login-btn:hover{color:#000;}
+.login-btn:hover{color:#000;box-shadow:0 0 30px rgba(0,255,65,0.3);}
 .login-btn span{position:relative;z-index:1;}
 .login-btn:active{transform:scale(0.98);}
 
@@ -140,7 +287,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 
 .social-row{display:flex;justify-content:center;gap:12px;margin-top:35px;padding-top:25px;border-top:1px solid rgba(0,255,65,0.1);}
 .soc-btn{width:38px;height:38px;border:1px solid rgba(0,255,65,0.2);display:flex;align-items:center;justify-content:center;color:var(--muted);transition:all 0.3s;text-decoration:none;}
-.soc-btn:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.08);box-shadow:0 0 15px rgba(0,255,65,0.2);}
+.soc-btn:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.08);box-shadow:0 0 15px rgba(0,255,65,0.2);transform:scale(1.1) rotate(5deg);}
 .soc-btn svg{width:18px;height:18px;}
 
 .status-bar{position:absolute;bottom:0;left:0;right:0;padding:6px 14px;background:rgba(0,255,65,0.04);border-top:1px solid rgba(0,255,65,0.1);display:flex;justify-content:space-between;font-size:9px;color:var(--muted);}
@@ -148,12 +295,17 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
 .cursor{animation:blink 1s step-end infinite;}
+
+/* CLICK RIPPLE */
+.ripple{position:fixed;border-radius:50%;background:radial-gradient(circle, rgba(0,255,65,0.6) 0%, rgba(0,255,65,0) 70%);width:0;height:0;transform:translate(-50%,-50%);animation:rippleAnim 0.8s ease-out forwards;pointer-events:none;z-index:99999;}
+@keyframes rippleAnim{0%{width:0;height:0;opacity:0.8;}100%{width:200px;height:200px;opacity:0;}}
 </style>
 </head>
 <body>
 <div class="grid-bg"></div>
 <div class="glow-tl"></div>
 <div class="glow-br"></div>
+<div class="glow-center"></div>
 <canvas id="matrix"></canvas>
 
 <div class="login-wrap">
@@ -161,7 +313,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     <div class="brand">
       <span class="brand-icon">⚡</span>
       <div class="brand-name">EMOTE BOT</div>
-      <div class="brand-sub">// CONTROL PANEL v2.0</div>
+      <div class="brand-sub">// CONTROL PANEL v3.0</div>
     </div>
 
     <div class="sys-line">SYS: <span>AUTHENTICATION REQUIRED</span> — ENTER CREDENTIALS<span class="cursor">_</span></div>
@@ -191,6 +343,16 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 </div>
 
 <script>
+// Ripple effect on click
+document.addEventListener('click', function(e) {
+    const ripple = document.createElement('div');
+    ripple.className = 'ripple';
+    ripple.style.left = e.clientX + 'px';
+    ripple.style.top = e.clientY + 'px';
+    document.body.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 800);
+});
+
 // Matrix rain
 const canvas = document.getElementById('matrix');
 const ctx = canvas.getContext('2d');
@@ -276,26 +438,37 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 /* GRID BG */
 .grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(0,255,65,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,65,0.025) 1px,transparent 1px);background-size:40px 40px;z-index:0;}
 
-/* CLICK RIPPLE */
-.ripple{position:fixed;border-radius:50%;background:rgba(0,255,65,0.3);width:0;height:0;transform:translate(-50%,-50%);animation:rippleAnim 0.6s ease-out forwards;pointer-events:none;z-index:99999;}
-@keyframes rippleAnim{to{width:100px;height:100px;opacity:0;}}
+/* GLOW EFFECTS */
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+@keyframes borderGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(0,255,65,0.2), inset 0 0 5px rgba(0,255,65,0.05); }
+  50% { box-shadow: 0 0 25px rgba(0,255,65,0.4), inset 0 0 15px rgba(0,255,65,0.1); }
+}
+@keyframes textGlow {
+  0%, 100% { text-shadow: 0 0 5px rgba(0,255,65,0.3); }
+  50% { text-shadow: 0 0 20px rgba(0,255,65,0.6), 0 0 5px rgba(0,255,65,0.4); }
+}
 
 .wrap{max-width:820px;margin:0 auto;padding:16px;position:relative;z-index:10;}
 
 /* HEADER */
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border:1px solid var(--border);background:var(--card);margin-bottom:16px;position:relative;overflow:hidden;}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border:1px solid var(--border);background:var(--card);margin-bottom:16px;position:relative;overflow:hidden;animation: borderGlow 3s ease-in-out infinite;}
 .hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--green),transparent);}
 .hdr-brand{display:flex;align-items:center;gap:10px;}
-.hdr-brand .ico{font-size:26px;filter:drop-shadow(0 0 8px var(--green));}
+.hdr-brand .ico{font-size:26px;filter:drop-shadow(0 0 8px var(--green));animation: glowPulse 2s ease-in-out infinite;}
 .hdr-brand h1{font-family:'Rajdhani',sans-serif;font-size:22px;font-weight:700;letter-spacing:5px;color:var(--green);text-shadow:0 0 15px rgba(0,255,65,0.5);}
 .hdr-right{display:flex;gap:8px;align-items:center;}
 .sys-clock{font-size:11px;color:var(--muted);padding:6px 10px;border:1px solid rgba(0,255,65,0.12);letter-spacing:2px;}
-.hdr-btn{width:36px;height:36px;border:1px solid rgba(0,255,65,0.2);background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;}
-.hdr-btn:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.08);box-shadow:0 0 12px rgba(0,255,65,0.2);}
+.hdr-btn{width:36px;height:36px;border:1px solid rgba(0,255,65,0.2);background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.3s;}
+.hdr-btn:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.08);box-shadow:0 0 12px rgba(0,255,65,0.2);transform:scale(1.05);}
 .hdr-btn svg{width:18px;height:18px;}
 
 /* PANEL */
-.panel{border:1px solid var(--border);background:var(--card);padding:18px 20px;margin-bottom:14px;position:relative;overflow:hidden;}
+.panel{border:1px solid var(--border);background:var(--card);padding:18px 20px;margin-bottom:14px;position:relative;overflow:hidden;transition: all 0.3s ease;}
+.panel:hover{box-shadow:0 0 20px rgba(0,255,65,0.1);}
 .panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--green),transparent);}
 .panel-title{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
 .panel-title .tag{font-size:9px;letter-spacing:3px;color:var(--muted);}
@@ -309,7 +482,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .server-select:focus{border-color:var(--green);background-color:rgba(0,255,65,0.07);box-shadow:0 0 15px rgba(0,255,65,0.1);}
 .server-select option{background:#0a0f0a;color:var(--text);}
 
-/* CONFIG GRID - UID + EMOTE side by side */
+/* CONFIG GRID */
 .config-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
 @media(max-width:640px){.config-grid{grid-template-columns:1fr;}}
 
@@ -324,43 +497,40 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .uid-row{display:flex;gap:8px;align-items:center;}
 .uid-row .cfg-input{flex:1;}
 .uid-del{width:34px;height:34px;flex-shrink:0;background:rgba(255,60,90,0.08);border:1px solid rgba(255,60,90,0.25);color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;font-size:16px;line-height:1;}
-.uid-del:hover{background:rgba(255,60,90,0.15);border-color:var(--red);}
+.uid-del:hover{background:rgba(255,60,90,0.15);border-color:var(--red);transform:scale(1.05);}
 
 .add-uid-btn{width:100%;padding:10px;background:transparent;border:1px dashed rgba(0,255,65,0.25);color:var(--muted);font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:3px;cursor:pointer;transition:all 0.3s;margin-top:4px;}
-.add-uid-btn:hover:not(:disabled){border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.04);}
+.add-uid-btn:hover:not(:disabled){border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.04);transform:scale(1.02);}
 .add-uid-btn:disabled{opacity:0.3;cursor:not-allowed;}
 
 /* EMOTE SECTION */
 .cat-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
 .cat-tab{padding:6px 14px;background:transparent;border:1px solid rgba(0,255,65,0.18);color:var(--muted);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;cursor:pointer;transition:all 0.25s;}
-.cat-tab:hover{border-color:var(--green);color:var(--green);}
-.cat-tab.active{background:var(--green);color:#000;border-color:var(--green);font-weight:700;}
+.cat-tab:hover{border-color:var(--green);color:var(--green);transform:translateY(-2px);}
+.cat-tab.active{background:var(--green);color:#000;border-color:var(--green);font-weight:700;box-shadow:0 0 15px rgba(0,255,65,0.3);}
 
-/* EMOTE GRID — Fixed Version */
+/* EMOTE GRID */
 .emote-grid {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);     /* Desktop: 8 columns */
+    grid-template-columns: repeat(8, 1fr);
     gap: 8px;
     max-height: 320px;
     overflow-y: auto;
     padding-right: 6px;
     padding-bottom: 6px;
 }
-
 .emote-grid img {
-    width: 100%;           /* Important */
+    width: 100%;
     height: auto;
-    object-fit: contain;   /* Image ratio maintain karega */
+    object-fit: contain;
     border-radius: 6px;
     background: rgba(255,255,255,0.05);
-    transition: transform 0.2s ease;
+    transition: all 0.3s ease;
 }
-
 .emote-grid img:hover {
     transform: scale(1.08);
+    filter: drop-shadow(0 0 8px rgba(0,255,65,0.5));
 }
-
-/* Scrollbar Styling */
 .emote-grid::-webkit-scrollbar {
     width: 5px;
 }
@@ -371,20 +541,12 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     background: rgba(0,255,65,0.4);
     border-radius: 10px;
 }
-
-/* Responsive */
 @media (max-width: 640px) {
-    .emote-grid {
-        grid-template-columns: repeat(4, 1fr);
-    }
+    .emote-grid { grid-template-columns: repeat(4, 1fr); }
 }
-
 @media (max-width: 380px) {
-    .emote-grid {
-        grid-template-columns: repeat(3, 1fr);
-    }
+    .emote-grid { grid-template-columns: repeat(3, 1fr); }
 }
-
 .emote-card{aspect-ratio:1;border:1px solid rgba(0,255,65,0.12);background:rgba(0,255,65,0.03);cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden;display:flex;flex-direction:column;}
 .emote-card:hover{border-color:rgba(0,255,65,0.5);background:rgba(0,255,65,0.08);transform:scale(1.04);box-shadow:0 0 18px rgba(0,255,65,0.2);}
 .emote-card.selected{border-color:var(--green);background:rgba(0,255,65,0.15);box-shadow:0 0 25px rgba(0,255,65,0.4);}
@@ -396,10 +558,11 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .emote-card.selected .emote-lbl{color:var(--green);}
 .no-emotes{grid-column:1/-1;text-align:center;color:var(--muted);padding:30px;font-size:11px;}
 
-/* STATUS BAR */
+/* STATUS */
 .status-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
 @media(max-width:500px){.status-grid{grid-template-columns:1fr;}}
-.stat-box{padding:12px 14px;border:1px solid rgba(0,255,65,0.12);background:rgba(0,255,65,0.03);}
+.stat-box{padding:12px 14px;border:1px solid rgba(0,255,65,0.12);background:rgba(0,255,65,0.03);transition:all 0.3s;}
+.stat-box:hover{border-color:rgba(0,255,65,0.3);box-shadow:0 0 15px rgba(0,255,65,0.08);}
 .stat-lbl{font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:5px;}
 .stat-val{font-size:13px;color:var(--green);font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
@@ -407,36 +570,38 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 #toastBox{position:fixed;top:70px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;}
 .toast{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid;background:rgba(0,10,0,0.95);font-size:11px;letter-spacing:1px;opacity:0;transform:translateX(120%);transition:all 0.35s;min-width:260px;max-width:360px;backdrop-filter:blur(10px);}
 .toast.show{opacity:1;transform:translateX(0);}
-.toast.t-ok{border-color:rgba(0,255,65,0.4);color:var(--green);}
+.toast.t-ok{border-color:rgba(0,255,65,0.4);color:var(--green);box-shadow:0 0 20px rgba(0,255,65,0.2);}
 .toast.t-err{border-color:rgba(255,60,90,0.4);color:var(--red);}
 .toast.t-inf{border-color:rgba(255,170,0,0.4);color:var(--amber);}
-.toast-ico{font-size:14px;flex-shrink:0;}
-.toast-msg{flex:1;}
 
 /* LOADING */
 #loader{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;backdrop-filter:blur(4px);}
-.spin-ring{width:50px;height:50px;border:2px solid rgba(0,255,65,0.1);border-top:2px solid var(--green);border-radius:50%;animation:spin 0.7s linear infinite;margin-bottom:14px;}
+.spin-ring{width:50px;height:50px;border:2px solid rgba(0,255,65,0.1);border-top:2px solid var(--green);border-radius:50%;animation:spin 0.7s linear infinite;margin-bottom:14px;box-shadow:0 0 15px rgba(0,255,65,0.3);}
 @keyframes spin{to{transform:rotate(360deg);}}
 .load-txt{font-size:10px;color:var(--muted);letter-spacing:4px;animation:blink 1s step-end infinite;}
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
 
 /* MAINTENANCE */
 .maint-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:99990;backdrop-filter:blur(8px);}
-.maint-box{border:1px solid var(--border);padding:40px;max-width:420px;text-align:center;background:rgba(0,15,0,0.95);position:relative;}
+.maint-box{border:1px solid var(--border);padding:40px;max-width:420px;text-align:center;background:rgba(0,15,0,0.95);position:relative;animation: borderGlow 3s ease-in-out infinite;}
 .maint-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--green),transparent);}
 .maint-ico{font-size:48px;margin-bottom:16px;}
 .maint-box h2{font-family:'Rajdhani',sans-serif;font-size:24px;font-weight:700;letter-spacing:4px;color:var(--green);margin-bottom:12px;}
 .maint-box p{color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:24px;}
 .maint-link{display:inline-block;padding:12px 28px;border:1px solid var(--green);color:var(--green);text-decoration:none;font-size:11px;letter-spacing:3px;transition:all 0.3s;}
-.maint-link:hover{background:var(--green);color:#000;}
+.maint-link:hover{background:var(--green);color:#000;box-shadow:0 0 20px rgba(0,255,65,0.3);transform:scale(1.05);}
 
 /* FOOTER */
 .footer{display:flex;justify-content:center;gap:10px;padding:20px 0;}
 .foot-link{width:36px;height:36px;border:1px solid rgba(0,255,65,0.15);display:flex;align-items:center;justify-content:center;color:var(--muted);text-decoration:none;transition:all 0.25s;}
-.foot-link:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.08);}
+.foot-link:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,65,0.08);transform:scale(1.1) rotate(5deg);box-shadow:0 0 15px rgba(0,255,65,0.2);}
 .foot-link svg{width:16px;height:16px;}
 
 .hidden{display:none!important;}
+
+/* CLICK RIPPLE */
+.ripple{position:fixed;border-radius:50%;background:radial-gradient(circle, rgba(0,255,65,0.6) 0%, rgba(0,255,65,0) 70%);width:0;height:0;transform:translate(-50%,-50%);animation:rippleAnim 0.8s ease-out forwards;pointer-events:none;z-index:99999;}
+@keyframes rippleAnim{0%{width:0;height:0;opacity:0.8;}100%{width:200px;height:200px;opacity:0;}}
 </style>
 </head>
 <body>
@@ -452,7 +617,6 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 </div>
 
 <div class="wrap">
-  <!-- HEADER -->
   <header class="hdr">
     <div class="hdr-brand">
       <span class="ico">⚡</span>
@@ -466,7 +630,6 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     </div>
   </header>
 
-  <!-- SERVERS -->
   <div class="panel">
     <div class="corner-tl"></div><div class="corner-br"></div>
     <div class="panel-title"><span class="flag">🇮🇳</span><h2>INDIAN SERVERS</h2><span class="tag">// SELECT NODE</span></div>
@@ -485,9 +648,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     <select id="otherSrv" class="server-select"><option value="">-- SELECT OTHER SERVER --</option></select>
   </div>
 
-  <!-- CONFIG + EMOTE SIDE BY SIDE -->
   <div class="config-grid">
-    <!-- UID CONFIG -->
     <div class="panel" style="margin-bottom:0;">
       <div class="corner-tl"></div><div class="corner-br"></div>
       <div class="panel-title"><h2>CONFIGURATION</h2></div>
@@ -503,7 +664,6 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
       <button class="add-uid-btn" id="addUidBtn">+ ADD UID</button>
     </div>
 
-    <!-- EMOTE SELECTION -->
     <div class="panel" style="margin-bottom:0;">
       <div class="corner-tl"></div><div class="corner-br"></div>
       <div class="panel-title"><h2>EMOTE SELECTION</h2></div>
@@ -512,7 +672,6 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     </div>
   </div>
 
-  <!-- STATUS -->
   <div class="panel" style="margin-top:14px;">
     <div class="corner-tl"></div><div class="corner-br"></div>
     <div class="panel-title"><h2>STATUS</h2><span class="tag">// LIVE READOUT</span></div>
@@ -523,7 +682,6 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     </div>
   </div>
 
-  <!-- FOOTER -->
   <footer class="footer">
     <a href="#" id="ftTelegram" class="foot-link"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg></a>
     <a href="#" id="ftGithub" class="foot-link"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2A10 10 0 002 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0012 2z"/></svg></a>
@@ -539,21 +697,9 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 </div>
 
 <script>
-// ---- CLICK RIPPLE EFFECT ----
-document.addEventListener('click',e=>{
-  const r=document.createElement('div');
-  r.className='ripple';
-  r.style.left=e.clientX+'px';
-  r.style.top=e.clientY+'px';
-  document.body.appendChild(r);
-  setTimeout(()=>r.remove(),600);
-});
-
-// ---- CLOCK ----
+document.addEventListener('click',function(e){const r=document.createElement('div');r.className='ripple';r.style.left=e.clientX+'px';r.style.top=e.clientY+'px';document.body.appendChild(r);setTimeout(()=>r.remove(),800);});
 function tick(){document.getElementById('clock').textContent=new Date().toTimeString().slice(0,8);}
 setInterval(tick,1000);tick();
-
-// ---- TOAST ----
 function toast(msg,type='ok'){
   const box=document.getElementById('toastBox');
   const t=document.createElement('div');
@@ -564,22 +710,14 @@ function toast(msg,type='ok'){
   setTimeout(()=>t.classList.add('show'),10);
   setTimeout(()=>{t.classList.remove('show');setTimeout(()=>t.remove(),400);},3200);
 }
-
-// ---- STATE ----
 let selSrv=null,selEmote=null,uidCount=1;
 const MAX_UID=5;
-
-// ---- LOADER ----
 function showLoad(){document.getElementById('loader').classList.remove('hidden');}
 function hideLoad(){document.getElementById('loader').classList.add('hidden');}
-
-// ---- LOAD DATA ----
 async function loadData(){
   try{
     const r=await fetch('/api/data');
     const d=await r.json();
-
-    // Servers
     const iSrv=document.getElementById('indianSrv');
     const bSrv=document.getElementById('bangladeshSrv');
     const oSrv=document.getElementById('otherSrv');
@@ -592,8 +730,6 @@ async function loadData(){
       else if(s.region==='bangladesh') bSrv.insertAdjacentHTML('beforeend',o);
       else oSrv.insertAdjacentHTML('beforeend',o);
     });
-
-    // Categories
     const cats=(d.categories||[]).sort((a,b)=>(a.order||0)-(b.order||0));
     const tabsEl=document.getElementById('catTabs');
     tabsEl.innerHTML='';
@@ -612,15 +748,11 @@ async function loadData(){
       if(i===0) firstCat=c.id;
     });
     loadEmotes(firstCat,d.emotes||[]);
-
-    // Footer
     const l=d.settings.footerLinks||{};
     document.getElementById('ftTelegram').href=l.telegram||'#';
     document.getElementById('ftGithub').href=l.github||'#';
     document.getElementById('ftDiscord').href=l.discord||'#';
     document.getElementById('ftYoutube').href=l.youtube||'#';
-
-    // Maintenance
     const m=d.settings.maintenance||{};
     if(m.enabled){
       document.getElementById('maintMsg').textContent=m.message||'';
@@ -628,7 +760,6 @@ async function loadData(){
     }
   }catch(e){console.error(e);}
 }
-
 function loadEmotes(catId,emotes){
   const grid=document.getElementById('emoteGrid');
   grid.innerHTML='';
@@ -642,26 +773,21 @@ function loadEmotes(catId,emotes){
     grid.appendChild(card);
   });
 }
-
 async function handleEmoteClick(emoteId,card){
   document.querySelectorAll('.emote-card').forEach(c=>c.classList.remove('selected'));
   card.classList.add('selected');
   selEmote=emoteId;
   document.getElementById('stEmote').textContent=emoteId;
-
-  // Validate before send
   if(!selSrv){toast('// SELECT SERVER FIRST','err');return;}
   const tc=document.getElementById('teamCode').value.trim();
   const u1=document.getElementById('uid1').value.trim();
   if(!tc){toast('// TEAM CODE REQUIRED','err');return;}
   if(!u1||!/^[0-9]{9,12}$/.test(u1)){toast('// VALID UID REQUIRED (9-12 DIGITS)','err');return;}
-
   const params=new URLSearchParams({server:selSrv,tc,uid1:u1,emote_id:emoteId});
   for(let i=2;i<=MAX_UID;i++){
     const v=document.getElementById(`uid${i}`)?.value.trim();
     if(v&&/^[0-9]{9,12}$/.test(v)) params.append(`uid${i}`,v);
   }
-
   showLoad();
   try{
     const r=await fetch('/api/send-emote?'+params.toString());
@@ -671,8 +797,6 @@ async function handleEmoteClick(emoteId,card){
     else toast('// ERROR: '+(res.error||'FAILED'),'err');
   }catch(e){hideLoad();toast('// CONNECTION ERROR','err');}
 }
-
-// ---- UID MANAGEMENT ----
 document.getElementById('addUidBtn').addEventListener('click',()=>{
   if(uidCount>=MAX_UID) return;
   uidCount++;
@@ -684,7 +808,6 @@ document.getElementById('addUidBtn').addEventListener('click',()=>{
   c.appendChild(d);
   if(uidCount>=MAX_UID){const b=document.getElementById('addUidBtn');b.disabled=true;b.textContent='MAX UIDS REACHED';}
 });
-
 window.delUid=function(n){
   document.getElementById('uf'+n)?.remove();
   uidCount--;
@@ -692,8 +815,6 @@ window.delUid=function(n){
   const b=document.getElementById('addUidBtn');
   b.disabled=false;b.textContent='+ ADD UID';
 };
-
-// ---- SERVER SELECTION ----
 function setupServers(){
   const sels=['indianSrv','bangladeshSrv','otherSrv'];
   sels.forEach(id=>{
@@ -706,9 +827,7 @@ function setupServers(){
     });
   });
 }
-
 document.getElementById('logoutBtn').addEventListener('click',()=>{window.location.href='/logout';});
-
 loadData();
 setupServers();
 </script>
@@ -729,9 +848,13 @@ body{font-family:'Share Tech Mono',monospace;background:#000;color:var(--text);m
 body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.1) 2px,rgba(0,0,0,0.1) 4px);pointer-events:none;z-index:9998;}
 .grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(0,255,65,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,65,0.025) 1px,transparent 1px);background-size:40px 40px;z-index:0;}
 
-/* LOGIN */
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
 .auth-wrap{position:relative;z-index:10;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
-.auth-box{width:100%;max-width:420px;border:1px solid var(--border);background:var(--card);padding:45px 36px;position:relative;}
+.auth-box{width:100%;max-width:420px;border:1px solid var(--border);background:var(--card);padding:45px 36px;position:relative;animation: glowPulse 3s ease-in-out infinite;}
 .auth-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--green),transparent);}
 .auth-ico{font-size:42px;text-align:center;display:block;margin-bottom:10px;}
 .auth-title{font-family:'Rajdhani',sans-serif;font-size:26px;font-weight:700;letter-spacing:5px;color:var(--green);text-align:center;margin-bottom:4px;}
@@ -739,24 +862,24 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .auth-form{display:flex;flex-direction:column;gap:14px;}
 .auth-input{width:100%;padding:13px 16px;background:rgba(0,255,65,0.04);border:1px solid rgba(0,255,65,0.2);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:13px;outline:none;transition:all 0.3s;caret-color:var(--green);}
 .auth-input::placeholder{color:var(--muted);}
-.auth-input:focus{border-color:var(--green);background:rgba(0,255,65,0.07);}
+.auth-input:focus{border-color:var(--green);background:rgba(0,255,65,0.07);box-shadow:0 0 15px rgba(0,255,65,0.1);}
 .auth-btn{padding:14px;background:transparent;border:1px solid var(--green);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:4px;cursor:pointer;transition:all 0.3s;position:relative;overflow:hidden;}
 .auth-btn::before{content:'';position:absolute;inset:0;background:var(--green);transform:translateX(-100%);transition:transform 0.3s;}
 .auth-btn:hover::before{transform:translateX(0);}
-.auth-btn:hover{color:#000;}
+.auth-btn:hover{color:#000;box-shadow:0 0 20px rgba(0,255,65,0.3);}
 .auth-btn span{position:relative;z-index:1;}
 .err{padding:10px;border:1px solid rgba(255,60,90,0.3);color:var(--red);font-size:11px;text-align:center;}
 
-/* DASHBOARD */
 .dash{max-width:820px;margin:0 auto;padding:16px;position:relative;z-index:10;}
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border:1px solid var(--border);background:var(--card);margin-bottom:16px;position:relative;}
 .hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--green),transparent);}
 .hdr h1{font-family:'Rajdhani',sans-serif;font-size:20px;font-weight:700;letter-spacing:5px;color:var(--green);}
 .hdr-btn{width:34px;height:34px;border:1px solid rgba(0,255,65,0.2);background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;}
-.hdr-btn:hover{border-color:var(--green);color:var(--green);}
+.hdr-btn:hover{border-color:var(--green);color:var(--green);transform:scale(1.05);}
 .hdr-btn svg{width:17px;height:17px;}
 
-.panel{border:1px solid var(--border);background:var(--card);padding:18px 20px;margin-bottom:14px;position:relative;}
+.panel{border:1px solid var(--border);background:var(--card);padding:18px 20px;margin-bottom:14px;position:relative;transition:all 0.3s;}
+.panel:hover{box-shadow:0 0 15px rgba(0,255,65,0.08);}
 .panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--green),transparent);}
 .panel h2{font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;letter-spacing:3px;color:var(--green);margin-bottom:16px;}
 
@@ -765,36 +888,38 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 @media(max-width:600px){.fg{grid-template-columns:1fr;}}
 .adm-input{width:100%;padding:11px 14px;background:rgba(0,255,65,0.04);border:1px solid rgba(0,255,65,0.18);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:12px;outline:none;transition:all 0.3s;}
 .adm-input::placeholder{color:var(--muted);}
-.adm-input:focus{border-color:var(--green);background:rgba(0,255,65,0.06);}
+.adm-input:focus{border-color:var(--green);background:rgba(0,255,65,0.06);box-shadow:0 0 10px rgba(0,255,65,0.08);}
 .adm-btn{width:100%;padding:13px;background:transparent;border:1px solid var(--green);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:3px;cursor:pointer;transition:all 0.3s;}
-.adm-btn:hover{background:var(--green);color:#000;}
+.adm-btn:hover{background:var(--green);color:#000;box-shadow:0 0 15px rgba(0,255,65,0.2);transform:scale(1.02);}
 .adm-btn-cancel{width:100%;padding:13px;background:transparent;border:1px solid rgba(0,255,65,0.2);color:var(--muted);font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:3px;cursor:pointer;transition:all 0.3s;}
-.adm-btn-cancel:hover{border-color:var(--green);color:var(--green);}
+.adm-btn-cancel:hover{border-color:var(--green);color:var(--green);transform:scale(1.02);}
 
 .list{margin-top:16px;display:flex;flex-direction:column;gap:8px;}
 .list-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid rgba(0,255,65,0.1);background:rgba(0,255,65,0.03);transition:all 0.2s;}
-.list-item:hover{border-color:rgba(0,255,65,0.3);}
+.list-item:hover{border-color:rgba(0,255,65,0.3);transform:translateX(5px);}
 .li-info strong{font-size:13px;color:var(--text);display:block;}
 .li-info span{font-size:10px;color:var(--muted);}
 .li-actions{display:flex;gap:8px;}
 .li-btn{width:32px;height:32px;border:1px solid rgba(0,255,65,0.18);background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;}
-.li-btn:hover{border-color:var(--green);color:var(--green);}
+.li-btn:hover{border-color:var(--green);color:var(--green);transform:scale(1.05);}
 .li-btn svg{width:14px;height:14px;}
 
 .toggle-wrap{display:flex;align-items:center;gap:14px;padding:12px 16px;border:1px solid rgba(0,255,65,0.1);background:rgba(0,255,65,0.02);}
 input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:pointer;}
 
 .loader{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;z-index:99999;}
-.spin{width:44px;height:44px;border:2px solid rgba(0,255,65,0.1);border-top:2px solid var(--green);border-radius:50%;animation:spin 0.7s linear infinite;}
+.spin{width:44px;height:44px;border:2px solid rgba(0,255,65,0.1);border-top:2px solid var(--green);border-radius:50%;animation:spin 0.7s linear infinite;box-shadow:0 0 10px rgba(0,255,65,0.2);}
 @keyframes spin{to{transform:rotate(360deg);}}
-
 .hidden{display:none!important;}
+
+/* CLICK RIPPLE */
+.ripple{position:fixed;border-radius:50%;background:radial-gradient(circle, rgba(0,255,65,0.6) 0%, rgba(0,255,65,0) 70%);width:0;height:0;transform:translate(-50%,-50%);animation:rippleAnim 0.8s ease-out forwards;pointer-events:none;z-index:99999;}
+@keyframes rippleAnim{0%{width:0;height:0;opacity:0.8;}100%{width:200px;height:200px;opacity:0;}}
 </style>
 </head>
 <body>
 <div class="grid-bg"></div>
 
-<!-- LOGIN -->
 <div id="loginView" class="auth-wrap">
   <div class="auth-box">
     <span class="auth-ico">🔐</span>
@@ -809,14 +934,12 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
   </div>
 </div>
 
-<!-- DASHBOARD -->
 <div id="adminDash" class="dash hidden">
   <header class="hdr">
     <h1>⚡ ADMIN PANEL</h1>
     <button id="adminLogout" class="hdr-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-width="2"/></svg></button>
   </header>
 
-  <!-- SERVERS -->
   <div class="panel">
     <h2>SERVER MANAGEMENT</h2>
     <form id="serverForm" class="adm-form">
@@ -840,7 +963,6 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
     <div id="srvList" class="list"></div>
   </div>
 
-  <!-- CATEGORIES -->
   <div class="panel">
     <h2>CATEGORY MANAGEMENT</h2>
     <form id="catForm" class="adm-form">
@@ -856,7 +978,6 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
     <div id="catList" class="list"></div>
   </div>
 
-  <!-- EMOTES -->
   <div class="panel">
     <h2>EMOTE MANAGEMENT</h2>
     <form id="emoteForm" class="adm-form">
@@ -872,7 +993,6 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
     <div id="emoteList" class="list"></div>
   </div>
 
-  <!-- FOOTER LINKS -->
   <div class="panel">
     <h2>FOOTER LINKS</h2>
     <form id="linksForm" class="adm-form">
@@ -884,7 +1004,6 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
     </form>
   </div>
 
-  <!-- MAINTENANCE -->
   <div class="panel">
     <h2>MAINTENANCE MODE</h2>
     <form id="maintForm" class="adm-form">
@@ -897,7 +1016,6 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
     </form>
   </div>
 
-  <!-- PASSWORD -->
   <div class="panel">
     <h2>LOGIN PASSWORD</h2>
     <form id="pwForm" class="adm-form">
@@ -910,142 +1028,78 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
 <div id="adminLoader" class="loader hidden"><div class="spin"></div></div>
 
 <script>
+document.addEventListener('click',function(e){const r=document.createElement('div');r.className='ripple';r.style.left=e.clientX+'px';r.style.top=e.clientY+'px';document.body.appendChild(r);setTimeout(()=>r.remove(),800);});
 const showLoad=()=>document.getElementById('adminLoader').classList.remove('hidden');
 const hideLoad=()=>document.getElementById('adminLoader').classList.add('hidden');
-
 document.getElementById('adminLoginForm').addEventListener('submit',async e=>{
-  e.preventDefault();
-  showLoad();
+  e.preventDefault();showLoad();
   const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('adminEmail').value,password:document.getElementById('adminPassword').value})});
-  const d=await r.json();
-  hideLoad();
+  const d=await r.json();hideLoad();
   if(d.success){document.getElementById('loginView').classList.add('hidden');document.getElementById('adminDash').classList.remove('hidden');loadAdminData();}
   else{document.getElementById('loginErr').classList.remove('hidden');setTimeout(()=>document.getElementById('loginErr').classList.add('hidden'),3000);}
 });
-
-document.getElementById('adminLogout').addEventListener('click',()=>{
-  document.getElementById('loginView').classList.remove('hidden');
-  document.getElementById('adminDash').classList.add('hidden');
-  document.getElementById('adminPassword').value='';
-});
-
+document.getElementById('adminLogout').addEventListener('click',()=>{document.getElementById('loginView').classList.remove('hidden');document.getElementById('adminDash').classList.add('hidden');document.getElementById('adminPassword').value='';});
 async function loadAdminData(){
-  const r=await fetch('/api/data');
-  const d=await r.json();
-  renderServers(d.servers||[]);
-  renderCats(d.categories||[]);
-  renderCatDropdown(d.categories||[]);
-  renderEmotes(d.emotes||[]);
+  const r=await fetch('/api/data');const d=await r.json();
+  renderServers(d.servers||[]);renderCats(d.categories||[]);renderCatDropdown(d.categories||[]);renderEmotes(d.emotes||[]);
   const s=d.settings||{};
-  document.getElementById('tgUrl').value=s.footerLinks?.telegram||'';
-  document.getElementById('ghUrl').value=s.footerLinks?.github||'';
-  document.getElementById('dcUrl').value=s.footerLinks?.discord||'';
-  document.getElementById('ytUrl').value=s.footerLinks?.youtube||'';
-  document.getElementById('maintToggle').checked=s.maintenance?.enabled||false;
-  document.getElementById('maintMsg').value=s.maintenance?.message||'';
+  document.getElementById('tgUrl').value=s.footerLinks?.telegram||'';document.getElementById('ghUrl').value=s.footerLinks?.github||'';
+  document.getElementById('dcUrl').value=s.footerLinks?.discord||'';document.getElementById('ytUrl').value=s.footerLinks?.youtube||'';
+  document.getElementById('maintToggle').checked=s.maintenance?.enabled||false;document.getElementById('maintMsg').value=s.maintenance?.message||'';
 }
-
 function renderServers(list){
-  const el=document.getElementById('srvList');
-  el.innerHTML=list.length?'':'<p style="color:var(--muted);font-size:11px;text-align:center">// NO SERVERS YET</p>';
-  list.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(s=>{
-    const d=document.createElement('div');d.className='list-item';
+  const el=document.getElementById('srvList');el.innerHTML=list.length?'':'<p style="color:var(--muted);font-size:11px;text-align:center">// NO SERVERS YET</p>';
+  list.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(s=>{const d=document.createElement('div');d.className='list-item';
     d.innerHTML=`<div class="li-info"><strong>${s.name}</strong><span>${s.baseUrl} — ${s.region} #${s.order||0}</span></div><div class="li-actions"><button class="li-btn" onclick="editSrv('${s.id}','${s.name}','${s.baseUrl}','${s.region}',${s.order||0})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke-width="2"/></svg></button><button class="li-btn" onclick="delSrv('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12" stroke-width="2"/></svg></button></div>`;
-    el.appendChild(d);
-  });
+    el.appendChild(d);});
 }
-
 document.getElementById('serverForm').addEventListener('submit',async e=>{
-  e.preventDefault();
-  const id=document.getElementById('editSrvId').value;
+  e.preventDefault();const id=document.getElementById('editSrvId').value;
   const body={id:id||undefined,name:document.getElementById('srvName').value,baseUrl:document.getElementById('srvUrl').value,region:document.getElementById('srvRegion').value,order:parseInt(document.getElementById('srvOrder').value)||0};
-  showLoad();
-  const r=await fetch(id?`/api/servers?id=${id}`:'/api/servers',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const d=await r.json();hideLoad();
-  if(d.success){resetSrvForm();loadAdminData();alert('✅ Server saved!');}
-  else alert('❌ '+d.error);
+  showLoad();const r=await fetch(id?`/api/servers?id=${id}`:'/api/servers',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();hideLoad();if(d.success){resetSrvForm();loadAdminData();alert('✅ Server saved!');}else alert('❌ '+d.error);
 });
 window.editSrv=(id,name,url,region,order)=>{document.getElementById('editSrvId').value=id;document.getElementById('srvName').value=name;document.getElementById('srvUrl').value=url;document.getElementById('srvRegion').value=region;document.getElementById('srvOrder').value=order;document.getElementById('srvBtnTxt').textContent='[ UPDATE SERVER ]';document.getElementById('cancelSrv').classList.remove('hidden');};
 window.delSrv=async id=>{if(!confirm('Delete server?'))return;showLoad();await fetch(`/api/servers?id=${id}`,{method:'DELETE'});hideLoad();loadAdminData();};
 document.getElementById('cancelSrv').addEventListener('click',resetSrvForm);
 function resetSrvForm(){document.getElementById('serverForm').reset();document.getElementById('editSrvId').value='';document.getElementById('srvBtnTxt').textContent='[ ADD SERVER ]';document.getElementById('cancelSrv').classList.add('hidden');}
-
 function renderCats(list){
-  const el=document.getElementById('catList');
-  el.innerHTML=list.length?'':'<p style="color:var(--muted);font-size:11px;text-align:center">// NO CATEGORIES YET</p>';
-  list.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(c=>{
-    const d=document.createElement('div');d.className='list-item';
+  const el=document.getElementById('catList');el.innerHTML=list.length?'':'<p style="color:var(--muted);font-size:11px;text-align:center">// NO CATEGORIES YET</p>';
+  list.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(c=>{const d=document.createElement('div');d.className='list-item';
     d.innerHTML=`<div class="li-info"><strong>${c.icon||''} ${c.name}</strong><span>Order: ${c.order||0}</span></div><div class="li-actions"><button class="li-btn" onclick="editCat('${c.id}','${c.name}','${c.icon||''}',${c.order||0})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke-width="2"/></svg></button><button class="li-btn" onclick="delCat('${c.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12" stroke-width="2"/></svg></button></div>`;
-    el.appendChild(d);
-  });
+    el.appendChild(d);});
 }
-function renderCatDropdown(list){
-  const sel=document.getElementById('emotecat');
-  sel.innerHTML='<option value="">-- Select Category --</option>';
-  list.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(c=>{
-    const o=document.createElement('option');o.value=c.id;o.textContent=(c.icon||'')+' '+c.name;sel.appendChild(o);
-  });
-}
+function renderCatDropdown(list){const sel=document.getElementById('emotecat');sel.innerHTML='<option value="">-- Select Category --</option>';list.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(c=>{const o=document.createElement('option');o.value=c.id;o.textContent=(c.icon||'')+' '+c.name;sel.appendChild(o);});}
 document.getElementById('catForm').addEventListener('submit',async e=>{
-  e.preventDefault();
-  const id=document.getElementById('editCatId').value;
-  const name=document.getElementById('catName').value;
+  e.preventDefault();const id=document.getElementById('editCatId').value;const name=document.getElementById('catName').value;
   const body={id:id||name.toUpperCase().replace(/ /g,'_'),name,icon:document.getElementById('catIcon').value,order:parseInt(document.getElementById('catOrder').value)||0};
-  showLoad();
-  const r=await fetch(id?`/api/categories?id=${id}`:'/api/categories',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const d=await r.json();hideLoad();
-  if(d.success){resetCatForm();loadAdminData();alert('✅ Category saved!');}
+  showLoad();const r=await fetch(id?`/api/categories?id=${id}`:'/api/categories',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();hideLoad();if(d.success){resetCatForm();loadAdminData();alert('✅ Category saved!');}
 });
 window.editCat=(id,name,icon,order)=>{document.getElementById('editCatId').value=id;document.getElementById('catName').value=name;document.getElementById('catIcon').value=icon;document.getElementById('catOrder').value=order;document.getElementById('catBtnTxt').textContent='[ UPDATE CATEGORY ]';document.getElementById('cancelCat').classList.remove('hidden');};
 window.delCat=async id=>{if(!confirm('Delete category?'))return;showLoad();await fetch(`/api/categories?id=${id}`,{method:'DELETE'});hideLoad();loadAdminData();};
 document.getElementById('cancelCat').addEventListener('click',resetCatForm);
 function resetCatForm(){document.getElementById('catForm').reset();document.getElementById('editCatId').value='';document.getElementById('catBtnTxt').textContent='[ ADD CATEGORY ]';document.getElementById('cancelCat').classList.add('hidden');}
-
 function renderEmotes(list){
-  const el=document.getElementById('emoteList');
-  el.innerHTML=list.length?'':'<p style="color:var(--muted);font-size:11px;text-align:center">// NO EMOTES YET</p>';
-  list.forEach(em=>{
-    const d=document.createElement('div');d.className='list-item';
+  const el=document.getElementById('emoteList');el.innerHTML=list.length?'':'<p style="color:var(--muted);font-size:11px;text-align:center">// NO EMOTES YET</p>';
+  list.forEach(em=>{const d=document.createElement('div');d.className='list-item';
     d.innerHTML=`<div class="li-info" style="display:flex;align-items:center;gap:10px;"><img src="${em.imageUrl}" style="width:36px;height:36px;object-fit:contain;border:1px solid var(--border);"><div><strong>${em.emoteId}</strong><span>Category: ${em.category}</span></div></div><div class="li-actions"><button class="li-btn" onclick="editEmote('${em.id}','${em.imageUrl}','${em.category}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke-width="2"/></svg></button><button class="li-btn" onclick="delEmote('${em.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12" stroke-width="2"/></svg></button></div>`;
-    el.appendChild(d);
-  });
+    el.appendChild(d);});
 }
-document.getElementById('emoteUrl').addEventListener('input',e=>{
-  const p=document.getElementById('emotePreview');
-  p.innerHTML=e.target.value?`<img src="${e.target.value}" style="max-width:80px;max-height:80px;border:1px solid var(--border);margin-top:4px;">`:''
-});
+document.getElementById('emoteUrl').addEventListener('input',e=>{const p=document.getElementById('emotePreview');p.innerHTML=e.target.value?`<img src="${e.target.value}" style="max-width:80px;max-height:80px;border:1px solid var(--border);margin-top:4px;">`:''});
 document.getElementById('emoteForm').addEventListener('submit',async e=>{
-  e.preventDefault();
-  const id=document.getElementById('editEmoteId').value;
-  const imageUrl=document.getElementById('emoteUrl').value;
+  e.preventDefault();const id=document.getElementById('editEmoteId').value;const imageUrl=document.getElementById('emoteUrl').value;
   const body={id:id||undefined,imageUrl,category:document.getElementById('emotecat').value,emoteId:imageUrl.split('/').pop().split('.')[0]};
-  showLoad();
-  const r=await fetch(id?`/api/emotes?id=${id}`:'/api/emotes',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const d=await r.json();hideLoad();
-  if(d.success){resetEmoteForm();loadAdminData();alert('✅ Emote saved!');}
+  showLoad();const r=await fetch(id?`/api/emotes?id=${id}`:'/api/emotes',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();hideLoad();if(d.success){resetEmoteForm();loadAdminData();alert('✅ Emote saved!');}
 });
 window.editEmote=(id,url,cat)=>{document.getElementById('editEmoteId').value=id;document.getElementById('emoteUrl').value=url;document.getElementById('emotecat').value=cat;document.getElementById('emoteBtnTxt').textContent='[ UPDATE EMOTE ]';document.getElementById('cancelEmote').classList.remove('hidden');document.getElementById('emotePreview').innerHTML=`<img src="${url}" style="max-width:80px;max-height:80px;border:1px solid var(--border);margin-top:4px;">`};
 window.delEmote=async id=>{if(!confirm('Delete emote?'))return;showLoad();await fetch(`/api/emotes?id=${id}`,{method:'DELETE'});hideLoad();loadAdminData();};
 document.getElementById('cancelEmote').addEventListener('click',resetEmoteForm);
 function resetEmoteForm(){document.getElementById('emoteForm').reset();document.getElementById('editEmoteId').value='';document.getElementById('emoteBtnTxt').textContent='[ ADD EMOTE ]';document.getElementById('cancelEmote').classList.add('hidden');document.getElementById('emotePreview').innerHTML='';}
-
-document.getElementById('linksForm').addEventListener('submit',async e=>{
-  e.preventDefault();showLoad();
-  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'footerLinks',telegram:document.getElementById('tgUrl').value,github:document.getElementById('ghUrl').value,discord:document.getElementById('dcUrl').value,youtube:document.getElementById('ytUrl').value})});
-  const d=await r.json();hideLoad();if(d.success)alert('✅ Links updated!');
-});
-
-document.getElementById('maintForm').addEventListener('submit',async e=>{
-  e.preventDefault();showLoad();
-  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'maintenance',enabled:document.getElementById('maintToggle').checked,message:document.getElementById('maintMsg').value})});
-  const d=await r.json();hideLoad();if(d.success)alert('✅ Maintenance settings saved!');
-});
-
-document.getElementById('pwForm').addEventListener('submit',async e=>{
-  e.preventDefault();showLoad();
-  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'password',password:document.getElementById('newPw').value})});
-  const d=await r.json();hideLoad();if(d.success){alert('✅ Password updated!');document.getElementById('newPw').value='';}
-});
+document.getElementById('linksForm').addEventListener('submit',async e=>{e.preventDefault();showLoad();const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'footerLinks',telegram:document.getElementById('tgUrl').value,github:document.getElementById('ghUrl').value,discord:document.getElementById('dcUrl').value,youtube:document.getElementById('ytUrl').value})});const d=await r.json();hideLoad();if(d.success)alert('✅ Links updated!');});
+document.getElementById('maintForm').addEventListener('submit',async e=>{e.preventDefault();showLoad();const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'maintenance',enabled:document.getElementById('maintToggle').checked,message:document.getElementById('maintMsg').value})});const d=await r.json();hideLoad();if(d.success)alert('✅ Maintenance settings saved!');});
+document.getElementById('pwForm').addEventListener('submit',async e=>{e.preventDefault();showLoad();const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'password',password:document.getElementById('newPw').value})});const d=await r.json();hideLoad();if(d.success){alert('✅ Password updated!');document.getElementById('newPw').value='';}});
 </script>
 </body>
 </html>'''
@@ -1114,8 +1168,9 @@ def manage_servers():
     elif request.method == 'POST':
         try:
             data = request.json
+            server_id = str(int(time.time() * 1000))
             server = {
-                'id': str(int(time.time() * 1000)),
+                'id': server_id,
                 'name': data.get('name', '').strip(),
                 'baseUrl': data.get('baseUrl', '').strip().rstrip('/'),
                 'region': data.get('region', ''),
