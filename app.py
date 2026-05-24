@@ -82,7 +82,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EMOTE BOT — ACCESS</title>
+<title>XCY LIVE — ACCESS</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -160,7 +160,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <div class="login-box">
     <div class="brand">
       <span class="brand-icon">⚡</span>
-      <div class="brand-name">EMOTE BOT</div>
+      <div class="brand-name">XCY LIVE</div>
       <div class="brand-sub">// CONTROL PANEL v2.0</div>
     </div>
 
@@ -258,7 +258,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EMOTE BOT — DASHBOARD</title>
+<title>XCY LIVE — DASHBOARD</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -415,7 +415,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <header class="hdr">
     <div class="hdr-brand">
       <span class="ico">⚡</span>
-      <h1>EMOTE BOT</h1>
+      <h1>XCY LIVE</h1>
     </div>
     <div class="hdr-right">
       <div class="sys-clock" id="clock">--:--:--</div>
@@ -679,7 +679,7 @@ ADMIN_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EMOTE BOT — ADMIN</title>
+<title>XCY LIVE — ADMIN</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
