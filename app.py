@@ -1265,28 +1265,46 @@ def manage_settings():
                 DATABASE['users']['admin'] = hash_password(new_password)
         save_database()
         return jsonify({'success': True})
-
 @app.route('/api/send-emote', methods=['GET'])
 def send_emote():
     server = request.args.get('server')
     tc = request.args.get('tc')
     emote_id = request.args.get('emote_id')
-    uids = {}
+    
+    # Sab UIDs le lo
+    uids = []
     for i in range(1, 6):
         uid = request.args.get(f'uid{i}')
         if uid:
-            uids[f'uid{i}'] = uid
+            uids.append(f"uid{i}={uid}")
+    
+    # Check karo sab hai ya nahi
     if not server or not tc or not emote_id:
-        return jsonify({'success': False, 'error': 'Missing required parameters'})
-    params = {'tc': tc, 'emote_id': emote_id, **uids}
-    query_string = '&'.join([f'{k}={v}' for k, v in params.items()])
-    target_url = f"{server}/join?{query_string}"
+        return jsonify({'success': False, 'error': 'Missing parameters'})
+    
+    # URL banao
+    params = [f"tc={tc}", f"emote_id={emote_id}"] + uids
+    target_url = f"{server}/join?" + "&".join(params)
+    
+    print(f"[SENDING] {target_url}")  # Debug
+    
     try:
-        response = requests.get(target_url, timeout=10)
-        return jsonify({'success': True, 'status': response.status_code, 'message': 'Emote sent successfully', 'data': response.text})
+        # POST ya GET? Try both
+        response = requests.get(target_url, timeout=15)
+        
+        if response.status_code == 200:
+            return jsonify({'success': True, 'message': '✅ Emote sent!'})
+        else:
+            # Try POST method if GET fails
+            response2 = requests.post(target_url, timeout=15)
+            if response2.status_code == 200:
+                return jsonify({'success': True, 'message': '✅ Emote sent (POST)!'})
+            else:
+                return jsonify({'success': False, 'error': f'Failed: {response.status_code}'})
+                
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-
+        
 load_database()
 
 if __name__ == '__main__':
