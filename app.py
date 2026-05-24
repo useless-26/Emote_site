@@ -2940,7 +2940,7 @@ def admin_login():
     password = data.get('password', '')
     
     # Simple admin login (in production, use proper authentication)
-    if email == 'xcy@.com' and password == 'Bijay66':
+    if email == 'xcy@gmail.com' and password == 'Bijay66':
         return jsonify({'success': True})
     else:
         return jsonify({'success': False, 'error': 'Invalid credentials'})
