@@ -82,7 +82,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — ACCESS</title>
+<title>XCY LIVE B1— ACCESS</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -258,7 +258,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — DASHBOARD</title>
+<title>XCY LIVE B1— DASHBOARD</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -337,7 +337,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .cat-tab.active{background:var(--green);color:#000;border-color:var(--green);font-weight:700;}
 
 /* EMOTE GRID — 5 col by default, never overflow */
-.emote-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;max-height:320px;overflow-y:auto;padding-right:4px;}
+.emote-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;max-height:320px;overflow-y:auto;padding-right:4px;}
 .emote-grid::-webkit-scrollbar{width:4px;}
 .emote-grid::-webkit-scrollbar-track{background:rgba(0,255,65,0.04);}
 .emote-grid::-webkit-scrollbar-thumb{background:rgba(0,255,65,0.3);}
@@ -697,7 +697,7 @@ ADMIN_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — ADMIN</title>
+<title>XCY LIVE B1— ADMIN</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -789,7 +789,7 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:poi
 <!-- DASHBOARD -->
 <div id="adminDash" class="dash hidden">
   <header class="hdr">
-    <h1>⚡ XCY LIVE ADMIN</h1>
+    <h1>⚡ XCY LIVE B1ADMIN</h1>
     <button id="adminLogout" class="hdr-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-width="2"/></svg></button>
   </header>
 
@@ -1066,7 +1066,7 @@ def logout():
 @app.route('/api/data')
 def get_data():
     # No login check here — dashboard route already requires login.
-    # XCY LIVE ADMIN also needs this endpoint without a user session.
+    # XCY LIVE B1ADMIN also needs this endpoint without a user session.
     return jsonify({
         'servers': DATABASE['servers'],
         'categories': DATABASE['categories'],
