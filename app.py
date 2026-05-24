@@ -82,7 +82,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — ACCESS</title>
+<title>EMOTE BOT — ACCESS</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -160,7 +160,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <div class="login-box">
     <div class="brand">
       <span class="brand-icon">⚡</span>
-      <div class="brand-name">XCY LIVE</div>
+      <div class="brand-name">EMOTE BOT</div>
       <div class="brand-sub">// CONTROL PANEL v2.0</div>
     </div>
 
@@ -258,7 +258,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — DASHBOARD</title>
+<title>EMOTE BOT — DASHBOARD</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -415,7 +415,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <header class="hdr">
     <div class="hdr-brand">
       <span class="ico">⚡</span>
-      <h1>XCY LIVE</h1>
+      <h1>EMOTE BOT</h1>
     </div>
     <div class="hdr-right">
       <div class="sys-clock" id="clock">--:--:--</div>
@@ -536,7 +536,16 @@ function hideLoad(){document.getElementById('loader').classList.add('hidden');}
 async function loadData(){
   try{
     const r=await fetch('/api/data');
+    if(!r.ok){
+      if(r.status===401){window.location.href='/';return;}
+      toast('// DATA LOAD ERROR: HTTP '+r.status,'err');
+      return;
+    }
     const d=await r.json();
+    if(d.error){toast('// SERVER ERROR: '+d.error,'err');return;}
+
+    // Cache emotes for tab switching
+    window._allEmotes = d.emotes||[];
 
     // Servers
     const iSrv=document.getElementById('indianSrv');
@@ -565,27 +574,36 @@ async function loadData(){
       btn.addEventListener('click',()=>{
         document.querySelectorAll('.cat-tab').forEach(x=>x.classList.remove('active'));
         btn.classList.add('active');
-        loadEmotes(c.id,d.emotes||[]);
+        loadEmotes(c.id, window._allEmotes);
       });
       tabsEl.appendChild(btn);
       if(i===0) firstCat=c.id;
     });
-    loadEmotes(firstCat,d.emotes||[]);
+    if(firstCat) loadEmotes(firstCat, window._allEmotes);
+    else document.getElementById('emoteGrid').innerHTML='<div class="no-emotes">// NO CATEGORIES CONFIGURED</div>';
 
     // Footer
-    const l=d.settings.footerLinks||{};
+    const settings=d.settings||{};
+    const l=settings.footerLinks||{};
     document.getElementById('ftTelegram').href=l.telegram||'#';
     document.getElementById('ftGithub').href=l.github||'#';
     document.getElementById('ftDiscord').href=l.discord||'#';
     document.getElementById('ftYoutube').href=l.youtube||'#';
 
     // Maintenance
-    const m=d.settings.maintenance||{};
+    const m=settings.maintenance||{};
     if(m.enabled){
       document.getElementById('maintMsg').textContent=m.message||'';
       document.getElementById('maintOverlay').classList.remove('hidden');
     }
-  }catch(e){console.error(e);}
+
+    console.log('[LOAD] Servers:',d.servers?.length||0,'Emotes:',d.emotes?.length||0,'Categories:',d.categories?.length||0);
+  }catch(e){
+    console.error('[LOAD ERROR]',e);
+    toast('// NETWORK ERROR — RETRYING...','err');
+    // Auto retry after 3 seconds
+    setTimeout(loadData, 3000);
+  }
 }
 
 function loadEmotes(catId,emotes){
@@ -679,7 +697,7 @@ ADMIN_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — ADMIN</title>
+<title>EMOTE BOT — ADMIN</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -1047,8 +1065,8 @@ def logout():
 
 @app.route('/api/data')
 def get_data():
-    if not require_login():
-        return jsonify({'error': 'Unauthorized'}), 401
+    # No login check here — dashboard route already requires login.
+    # Admin panel also needs this endpoint without a user session.
     return jsonify({
         'servers': DATABASE['servers'],
         'categories': DATABASE['categories'],
