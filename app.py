@@ -2116,7 +2116,7 @@ ADMIN_HTML = '''
 
                 <form id="adminLoginForm" class="login-form">
                     <div class="input-container">
-                        <input type="email" id="adminEmail" value="admin@example.com" placeholder="Admin Email" required class="login-input" autocomplete="email">
+                        <input type="email" id="adminEmail" value="" placeholder="Admin Email" required class="login-input" autocomplete="email">
                     </div>
                     <div class="input-container">
                         <input type="password" id="adminPassword" placeholder="Password" required class="login-input" autocomplete="current-password">
@@ -2940,7 +2940,7 @@ def admin_login():
     password = data.get('password', '')
     
     # Simple admin login (in production, use proper authentication)
-    if email == 'admin@example.com' and password == 'admin123':
+    if email == 'xcy@.com' and password == 'Bijay66':
         return jsonify({'success': True})
     else:
         return jsonify({'success': False, 'error': 'Invalid credentials'})
