@@ -9,7 +9,11 @@ import requests
 app = Flask(__name__)
 app.secret_key = 'emote-bot-secret-key-2024'
 
-DATABASE = {
+# Always use absolute path next to app.py so it never gets lost
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'database.json')
+
+DEFAULT_DB = {
     'users': {'admin': hashlib.sha256('admin123'.encode()).hexdigest()},
     'servers': [],
     'categories': [
@@ -29,21 +33,39 @@ DATABASE = {
     }
 }
 
+DATABASE = {k: v for k, v in DEFAULT_DB.items()}
+
 def load_database():
     global DATABASE
     try:
-        if os.path.exists('database.json'):
-            with open('database.json', 'r') as f:
-                DATABASE = json.load(f)
-    except:
-        pass
+        if os.path.exists(DB_PATH):
+            with open(DB_PATH, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+            # Merge loaded data into default structure so missing keys dont crash
+            for key in DEFAULT_DB:
+                if key in loaded:
+                    DATABASE[key] = loaded[key]
+            print(f'[DB] Loaded from {DB_PATH}')
+        else:
+            print(f'[DB] No database.json found, starting fresh at {DB_PATH}')
+    except Exception as e:
+        print(f'[DB] Load error: {e} — starting with defaults')
 
 def save_database():
+    """Atomic write: write to temp file then rename so a crash never corrupts the DB."""
+    tmp_path = DB_PATH + '.tmp'
     try:
-        with open('database.json', 'w') as f:
-            json.dump(DATABASE, f, indent=2)
-    except:
-        pass
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(DATABASE, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, DB_PATH)
+        print(f'[DB] Saved {len(DATABASE.get("emotes",[]))} emotes, {len(DATABASE.get("servers",[]))} servers')
+    except Exception as e:
+        print(f'[DB] SAVE ERROR: {e}')
+        # Remove failed temp file if it exists
+        try:
+            os.remove(tmp_path)
+        except:
+            pass
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -60,7 +82,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — ACCESS</title>
+<title>EMOTE BOT — ACCESS</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -138,7 +160,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <div class="login-box">
     <div class="brand">
       <span class="brand-icon">⚡</span>
-      <div class="brand-name">XCY LIVE</div>
+      <div class="brand-name">EMOTE BOT</div>
       <div class="brand-sub">// CONTROL PANEL v2.0</div>
     </div>
 
@@ -236,7 +258,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — DASHBOARD</title>
+<title>EMOTE BOT — DASHBOARD</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -393,7 +415,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
   <header class="hdr">
     <div class="hdr-brand">
       <span class="ico">⚡</span>
-      <h1>XCY LIVE</h1>
+      <h1>EMOTE BOT</h1>
     </div>
     <div class="hdr-right">
       <div class="sys-clock" id="clock">--:--:--</div>
@@ -657,7 +679,7 @@ ADMIN_HTML = '''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XCY LIVE — ADMIN</title>
+<title>EMOTE BOT — ADMIN</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -1049,75 +1071,164 @@ def manage_servers():
     if request.method == 'GET':
         return jsonify({'servers': DATABASE['servers']})
     elif request.method == 'POST':
-        data = request.json
-        server = {'id': str(int(time.time())), 'name': data.get('name'), 'baseUrl': data.get('baseUrl'), 'region': data.get('region'), 'order': data.get('order', 0)}
-        DATABASE['servers'].append(server)
-        save_database()
-        return jsonify({'success': True, 'server': server})
+        try:
+            data = request.json
+            server = {
+                'id': str(int(time.time() * 1000)),
+                'name': data.get('name', '').strip(),
+                'baseUrl': data.get('baseUrl', '').strip().rstrip('/'),
+                'region': data.get('region', ''),
+                'order': int(data.get('order') or 0)
+            }
+            DATABASE['servers'].append(server)
+            save_database()
+            print(f'[SERVER] Added: {server["name"]}')
+            return jsonify({'success': True, 'server': server})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
     elif request.method == 'PUT':
-        data = request.json
-        server_id = data.get('id')
-        for i, server in enumerate(DATABASE['servers']):
-            if server['id'] == server_id:
-                DATABASE['servers'][i] = {'id': server_id, 'name': data.get('name'), 'baseUrl': data.get('baseUrl'), 'region': data.get('region'), 'order': data.get('order', 0)}
-                save_database()
-                return jsonify({'success': True})
-        return jsonify({'success': False, 'error': 'Server not found'})
+        try:
+            data = request.json
+            server_id = str(data.get('id', ''))
+            found = False
+            for i, server in enumerate(DATABASE['servers']):
+                if str(server['id']) == server_id:
+                    DATABASE['servers'][i] = {
+                        'id': server_id,
+                        'name': data.get('name', '').strip(),
+                        'baseUrl': data.get('baseUrl', '').strip().rstrip('/'),
+                        'region': data.get('region', ''),
+                        'order': int(data.get('order') or 0)
+                    }
+                    found = True
+                    break
+            if not found:
+                return jsonify({'success': False, 'error': 'Server not found'})
+            save_database()
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
     elif request.method == 'DELETE':
-        server_id = request.args.get('id')
-        DATABASE['servers'] = [s for s in DATABASE['servers'] if s['id'] != server_id]
-        save_database()
-        return jsonify({'success': True})
+        try:
+            server_id = str(request.args.get('id', ''))
+            DATABASE['servers'] = [s for s in DATABASE['servers'] if str(s['id']) != server_id]
+            save_database()
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/categories', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def manage_categories():
     if request.method == 'GET':
         return jsonify({'categories': DATABASE['categories']})
     elif request.method == 'POST':
-        data = request.json
-        category = {'id': data.get('id') or data.get('name', '').upper().replace(' ', '_'), 'name': data.get('name'), 'icon': data.get('icon', ''), 'order': data.get('order', 0)}
-        DATABASE['categories'].append(category)
-        save_database()
-        return jsonify({'success': True, 'category': category})
+        try:
+            data = request.json
+            name = data.get('name', '').strip()
+            cat_id = data.get('id') or name.upper().replace(' ', '_')
+            category = {
+                'id': cat_id,
+                'name': name,
+                'icon': data.get('icon', ''),
+                'order': int(data.get('order') or 0)
+            }
+            DATABASE['categories'].append(category)
+            save_database()
+            print(f'[CAT] Added: {name}')
+            return jsonify({'success': True, 'category': category})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
     elif request.method == 'PUT':
-        data = request.json
-        category_id = data.get('id')
-        for i, category in enumerate(DATABASE['categories']):
-            if category['id'] == category_id:
-                DATABASE['categories'][i] = {'id': category_id, 'name': data.get('name'), 'icon': data.get('icon', ''), 'order': data.get('order', 0)}
-                save_database()
-                return jsonify({'success': True})
-        return jsonify({'success': False, 'error': 'Category not found'})
+        try:
+            data = request.json
+            category_id = str(data.get('id', ''))
+            found = False
+            for i, category in enumerate(DATABASE['categories']):
+                if str(category['id']) == category_id:
+                    DATABASE['categories'][i] = {
+                        'id': category_id,
+                        'name': data.get('name', '').strip(),
+                        'icon': data.get('icon', ''),
+                        'order': int(data.get('order') or 0)
+                    }
+                    found = True
+                    break
+            if not found:
+                return jsonify({'success': False, 'error': 'Category not found'})
+            save_database()
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
     elif request.method == 'DELETE':
-        category_id = request.args.get('id')
-        DATABASE['categories'] = [c for c in DATABASE['categories'] if c['id'] != category_id]
-        save_database()
-        return jsonify({'success': True})
+        try:
+            category_id = str(request.args.get('id', ''))
+            DATABASE['categories'] = [c for c in DATABASE['categories'] if str(c['id']) != category_id]
+            save_database()
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/emotes', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def manage_emotes():
     if request.method == 'GET':
         return jsonify({'emotes': DATABASE['emotes']})
     elif request.method == 'POST':
-        data = request.json
-        emote = {'id': str(int(time.time())), 'imageUrl': data.get('imageUrl'), 'category': data.get('category'), 'emoteId': data.get('emoteId') or data.get('imageUrl', '').split('/')[-1].split('.')[0]}
-        DATABASE['emotes'].append(emote)
-        save_database()
-        return jsonify({'success': True, 'emote': emote})
+        try:
+            data = request.json
+            if not data:
+                return jsonify({'success': False, 'error': 'No data received'})
+            image_url = data.get('imageUrl', '').strip()
+            category = data.get('category', '').strip()
+            if not image_url or not category:
+                return jsonify({'success': False, 'error': 'imageUrl and category are required'})
+            emote_name = data.get('emoteId') or image_url.split('/')[-1].split('.')[0]
+            emote = {
+                'id': str(int(time.time() * 1000)),
+                'imageUrl': image_url,
+                'category': category,
+                'emoteId': emote_name
+            }
+            DATABASE['emotes'].append(emote)
+            save_database()
+            print(f'[EMOTE] Added: {emote_name} in {category}, total: {len(DATABASE["emotes"])}')
+            return jsonify({'success': True, 'emote': emote})
+        except Exception as e:
+            print(f'[EMOTE] POST error: {e}')
+            return jsonify({'success': False, 'error': str(e)})
     elif request.method == 'PUT':
-        data = request.json
-        emote_id = data.get('id')
-        for i, emote in enumerate(DATABASE['emotes']):
-            if emote['id'] == emote_id:
-                DATABASE['emotes'][i] = {'id': emote_id, 'imageUrl': data.get('imageUrl'), 'category': data.get('category'), 'emoteId': data.get('emoteId') or data.get('imageUrl', '').split('/')[-1].split('.')[0]}
-                save_database()
-                return jsonify({'success': True})
-        return jsonify({'success': False, 'error': 'Emote not found'})
+        try:
+            data = request.json
+            emote_id = str(data.get('id', ''))
+            image_url = data.get('imageUrl', '').strip()
+            category = data.get('category', '').strip()
+            found = False
+            for i, emote in enumerate(DATABASE['emotes']):
+                if str(emote['id']) == emote_id:
+                    DATABASE['emotes'][i] = {
+                        'id': emote_id,
+                        'imageUrl': image_url,
+                        'category': category,
+                        'emoteId': data.get('emoteId') or image_url.split('/')[-1].split('.')[0]
+                    }
+                    found = True
+                    break
+            if not found:
+                return jsonify({'success': False, 'error': f'Emote id={emote_id} not found'})
+            save_database()
+            return jsonify({'success': True})
+        except Exception as e:
+            print(f'[EMOTE] PUT error: {e}')
+            return jsonify({'success': False, 'error': str(e)})
     elif request.method == 'DELETE':
-        emote_id = request.args.get('id')
-        DATABASE['emotes'] = [e for e in DATABASE['emotes'] if e['id'] != emote_id]
-        save_database()
-        return jsonify({'success': True})
+        try:
+            emote_id = str(request.args.get('id', ''))
+            before = len(DATABASE['emotes'])
+            DATABASE['emotes'] = [e for e in DATABASE['emotes'] if str(e['id']) != emote_id]
+            save_database()
+            print(f'[EMOTE] Deleted id={emote_id}, removed {before - len(DATABASE["emotes"])} item(s)')
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/settings', methods=['GET', 'POST'])
 def manage_settings():
